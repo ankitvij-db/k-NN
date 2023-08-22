@@ -25,6 +25,8 @@ from okpt.io.dataset import Context
 from okpt.io.utils.reader import parse_json_from_path
 from okpt.test.steps import base
 from okpt.test.steps.base import StepConfig
+import nltk
+import random
 
 
 class OpenSearchStep(base.Step):
@@ -35,11 +37,13 @@ class OpenSearchStep(base.Step):
         self.endpoint = parse_string_param('endpoint', step_config.config,
                                            step_config.implicit_config,
                                            'localhost')
-        default_port = 9200 if self.endpoint == 'localhost' else 80
+        default_port = 443
         self.port = parse_int_param('port', step_config.config,
                                     step_config.implicit_config, default_port)
         self.opensearch = get_opensearch_client(str(self.endpoint),
                                                 int(self.port))
+        nltk.download('words')
+        self.random_data = ' '.join(random.choices(nltk.corpus.words.words(), k=1000))
 
 
 class CreateIndexStep(OpenSearchStep):
@@ -211,7 +215,7 @@ class TrainModelStep(OpenSearchStep):
         # So, we trained the model. Now we need to wait until we have to wait
         # until the model is created. Poll every
         # 1/10 second
-        requests.post('http://' + self.endpoint + ':' + str(self.port) +
+        requests.post('https://' + self.endpoint + ':' + str(self.port) +
                       '/_plugins/_knn/models/' + str(self.model_id) + '/_train',
                       json.dumps(body),
                       headers={'content-type': 'application/json'})
@@ -460,7 +464,7 @@ class BaseQueryStep(OpenSearchStep):
         results['memory_kb'] = get_cache_size_in_kb(self.endpoint, self.port)
 
         if self.calculate_recall:
-            ids = [[int(hit['_id'])
+            ids = [[int(hit["fields"]['_id'])
                     for hit in query_response['hits']['hits']]
                    for query_response in query_responses]
             results['recall@K'] = recall_at_r(ids, self.neighbors,
@@ -644,7 +648,7 @@ def bulk_transform(partition: np.ndarray, field_name: str, action,
         actions.extend([action(i + offset), None])
         for i in range(len(partition))
     ]
-    actions[1::2] = [{field_name: vec} for vec in partition.tolist()]
+    actions[1::2] = [{field_name: vec, "id": str(i + offset), "data": self.random_data, "acl": get_acl_filter_sample()} for i, vec in enumerate(partition.tolist())]
     return actions
 
 
@@ -668,7 +672,7 @@ def get_model(endpoint, port, model_id):
     Returns:
         Get model response
     """
-    response = requests.get('http://' + endpoint + ':' + str(port) +
+    response = requests.get('https://' + endpoint + ':' + str(port) +
                             '/_plugins/_knn/models/' + model_id,
                             headers={'content-type': 'application/json'})
     return response.json()
@@ -684,7 +688,7 @@ def delete_model(endpoint, port, model_id):
     Returns:
         Deleted model response
     """
-    response = requests.delete('http://' + endpoint + ':' + str(port) +
+    response = requests.delete('https://' + endpoint + ':' + str(port) +
                                '/_plugins/_knn/models/' + model_id,
                                headers={'content-type': 'application/json'})
     return response.json()
@@ -707,7 +711,7 @@ def get_opensearch_client(endpoint: str, port: int, timeout=60):
             'host': endpoint,
             'port': port
         }],
-        use_ssl=False,
+        use_ssl=True,
         verify_certs=False,
         connection_class=RequestsHttpConnection,
         timeout=timeout,
@@ -771,7 +775,7 @@ def get_cache_size_in_kb(endpoint, port):
     Returns:
         size of cache in kilobytes
     """
-    response = requests.get('http://' + endpoint + ':' + str(port) +
+    response = requests.get('https://' + endpoint + ':' + str(port) +
                             '/_plugins/_knn/stats',
                             headers={'content-type': 'application/json'})
     stats = response.json()
@@ -789,7 +793,10 @@ def query_index(opensearch: OpenSearch, index_name: str, body: dict,
     start_time = round(time.time()*1000)
     queryResponse = opensearch.search(index=index_name,
                              body=body,
-                             _source_excludes=excluded_fields)
+                             _source=False,
+                             stored_fields="_none_",
+                             docvalue_fields=["_id", "data", "acl"])
+                             # _source_excludes=excluded_fields)
     end_time = round(time.time() * 1000)
     queryResponse['client_time'] = end_time - start_time
     return queryResponse
@@ -800,3 +807,9 @@ def bulk_index(opensearch: OpenSearch, index_name: str, body: List):
 
 def get_segment_stats(opensearch: OpenSearch, index_name: str):
     return opensearch.indices.segments(index=index_name)
+
+def get_acl_filter_sample():
+    values = ["hr", "engineering", "legal"]
+    num_to_select = random.randint(1, 3) # Choose randomly 1, 2 or 3
+    selected_values = random.sample(values, num_to_select)
+    return selected_values

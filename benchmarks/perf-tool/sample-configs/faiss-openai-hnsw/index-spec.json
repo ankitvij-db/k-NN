@@ -1,0 +1,26 @@
+{
+  "settings": {
+    "index": {
+      "knn": true,
+      "refresh_interval": "30s",
+      "number_of_shards": 3,
+      "number_of_replicas": 0
+    }
+  },
+  "mappings": {
+    "properties": {
+      "target_field": {
+        "type": "knn_vector",
+        "dimension": 1536,
+        "method": {
+          "name": "hnsw",
+          "space_type": "l2",
+          "engine": "faiss",
+          "parameters": {
+            "ef_search": 80
+          }
+        }
+      }
+    }
+  }
+}

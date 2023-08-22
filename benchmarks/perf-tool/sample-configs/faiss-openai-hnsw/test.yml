@@ -1,0 +1,36 @@
+endpoint: aa0608d99b8db4953ac7df5f192ee46a-788601851.us-west-2.elb.amazonaws.com
+test_name: faiss_openai_hnsw
+test_id: "Test workflow for nmslib hnsw"
+num_runs: 1
+show_runs: false
+setup:
+  - name: delete_index
+    index_name: target_index
+steps:
+  - name: create_index
+    index_name: target_index
+    index_spec: sample-configs/faiss-openai-hnsw/index-spec.json
+  - name: ingest
+    index_name: target_index
+    field_name: target_field
+    bulk_size: 500
+    dataset_format: hdf5
+    dataset_path: ../dataset/dbpedia-openai-10k-euclidean.hdf5
+  - name: refresh_index
+    index_name: target_index
+  - name: force_merge
+    index_name: target_index
+    max_num_segments: 10
+  - name: query
+    k: 10
+    r: 1
+    calculate_recall: true
+    index_name: target_index
+    field_name: target_field
+    dataset_format: hdf5
+    dataset_path: ../dataset/dbpedia-openai-10k-euclidean.hdf5
+    neighbors_format: hdf5
+    neighbors_path: ../dataset/dbpedia-openai-10k-euclidean.hdf5
+cleanup:
+  - name: delete_index
+    index_name: target_index

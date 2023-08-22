@@ -22,6 +22,15 @@
             "m": 16
           }
         }
+      },
+      "id": {
+        "type": "keyword"
+      },
+      "data": {
+        "type": "keyword"
+      },
+      "acl": {
+        "type": "keyword"
       }
     }
   }
