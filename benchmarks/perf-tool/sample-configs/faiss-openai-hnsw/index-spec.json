@@ -20,6 +20,15 @@
             "ef_search": 80
           }
         }
+      },
+      "id": {
+        "type": "keyword"
+      },
+      "data": {
+        "type": "keyword"
+      },
+      "acl": {
+        "type": "keyword"
       }
     }
   }

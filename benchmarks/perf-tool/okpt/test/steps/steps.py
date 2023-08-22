@@ -27,6 +27,7 @@ from okpt.test.steps import base
 from okpt.test.steps.base import StepConfig
 import nltk
 import random
+from requests.auth import HTTPBasicAuth
 
 
 class OpenSearchStep(base.Step):
@@ -218,7 +219,9 @@ class TrainModelStep(OpenSearchStep):
         requests.post('https://' + self.endpoint + ':' + str(self.port) +
                       '/_plugins/_knn/models/' + str(self.model_id) + '/_train',
                       json.dumps(body),
-                      headers={'content-type': 'application/json'})
+                      headers={'content-type': 'application/json'},
+                      verify=False,
+                      auth=HTTPBasicAuth('admin', 'admin'))
 
         sleep_time = 0.1
         timeout = 100000
@@ -304,7 +307,7 @@ class BaseIngestStep(OpenSearchStep):
                                      Context.INDEX)
 
         self.input_doc_count = parse_int_param('doc_count', step_config.config, {},
-                                          self.dataset.size())
+                                               self.dataset.size())
         self.doc_count = min(self.input_doc_count, self.dataset.size())
 
     def _action(self):
@@ -338,7 +341,7 @@ class IngestStep(BaseIngestStep):
     def _handle_data_bulk(self, partition, action, i):
         if partition is None:
             return
-        body = bulk_transform(partition, self.field_name, action, i)
+        body = bulk_transform(partition, self.field_name, action, i, self.random_data)
         bulk_index(self.opensearch, self.index_name, body)
 
 
@@ -354,7 +357,7 @@ class IngestMultiFieldStep(BaseIngestStep):
                                           {}, None)
 
         self.attributes_dataset_name = parse_string_param('attributes_dataset_name',
-                                            step_config.config, {}, None)
+                                                          step_config.config, {}, None)
 
         self.attributes_dataset = parse_dataset('hdf5', dataset_path,
                                                 Context.CUSTOM, self.attributes_dataset_name)
@@ -368,7 +371,7 @@ class IngestMultiFieldStep(BaseIngestStep):
         if partition is None:
             return
         body = self.bulk_transform_with_attributes(partition, self.partition_attr, self.field_name,
-                                              action, i, self.attribute_spec)
+                                                   action, i, self.attribute_spec)
         bulk_index(self.opensearch, self.index_name, body)
 
     def bulk_transform_with_attributes(self, partition: np.ndarray, partition_attr, field_name: str,
@@ -464,7 +467,7 @@ class BaseQueryStep(OpenSearchStep):
         results['memory_kb'] = get_cache_size_in_kb(self.endpoint, self.port)
 
         if self.calculate_recall:
-            ids = [[int(hit["fields"]['_id'])
+            ids = [[int(hit["fields"]['_id'][0])
                     for hit in query_response['hits']['hits']]
                    for query_response in query_responses]
             results['recall@K'] = recall_at_r(ids, self.neighbors,
@@ -632,7 +635,7 @@ class GetStatsStep(OpenSearchStep):
 
 # Helper functions - (AKA not steps)
 def bulk_transform(partition: np.ndarray, field_name: str, action,
-                   offset: int) -> List[Dict[str, Any]]:
+                   offset: int, random_data) -> List[Dict[str, Any]]:
     """Partitions and transforms a list of vectors into OpenSearch's bulk
     injection format.
     Args:
@@ -648,7 +651,7 @@ def bulk_transform(partition: np.ndarray, field_name: str, action,
         actions.extend([action(i + offset), None])
         for i in range(len(partition))
     ]
-    actions[1::2] = [{field_name: vec, "id": str(i + offset), "data": self.random_data, "acl": get_acl_filter_sample()} for i, vec in enumerate(partition.tolist())]
+    actions[1::2] = [{field_name: vec, "id": str(i + offset), "data": random_data, "acl": get_acl_filter_sample()} for i, vec in enumerate(partition.tolist())]
     return actions
 
 
@@ -674,7 +677,9 @@ def get_model(endpoint, port, model_id):
     """
     response = requests.get('https://' + endpoint + ':' + str(port) +
                             '/_plugins/_knn/models/' + model_id,
-                            headers={'content-type': 'application/json'})
+                            headers={'content-type': 'application/json'},
+                            verify=False,
+                            auth=HTTPBasicAuth('admin', 'admin'))
     return response.json()
 
 
@@ -690,7 +695,9 @@ def delete_model(endpoint, port, model_id):
     """
     response = requests.delete('https://' + endpoint + ':' + str(port) +
                                '/_plugins/_knn/models/' + model_id,
-                               headers={'content-type': 'application/json'})
+                               headers={'content-type': 'application/json'},
+                               verify=False,
+                               auth=HTTPBasicAuth('admin', 'admin'))
     return response.json()
 
 
@@ -714,7 +721,9 @@ def get_opensearch_client(endpoint: str, port: int, timeout=60):
         use_ssl=True,
         verify_certs=False,
         connection_class=RequestsHttpConnection,
-        timeout=timeout,
+        http_auth = ('admin', 'admin'),
+        retry_on_timeout=True,
+        timeout=100,
     )
 
 
@@ -777,7 +786,9 @@ def get_cache_size_in_kb(endpoint, port):
     """
     response = requests.get('https://' + endpoint + ':' + str(port) +
                             '/_plugins/_knn/stats',
-                            headers={'content-type': 'application/json'})
+                            headers={'content-type': 'application/json'},
+                            verify=False,
+                            auth=HTTPBasicAuth('admin', 'admin'))
     stats = response.json()
 
     keys = stats['nodes'].keys()
@@ -792,11 +803,11 @@ def query_index(opensearch: OpenSearch, index_name: str, body: dict,
                 excluded_fields: list):
     start_time = round(time.time()*1000)
     queryResponse = opensearch.search(index=index_name,
-                             body=body,
-                             _source=False,
-                             stored_fields="_none_",
-                             docvalue_fields=["_id", "data", "acl"])
-                             # _source_excludes=excluded_fields)
+                                      body=body,
+                                      _source=False,
+                                      stored_fields="_none_",
+                                      docvalue_fields=["_id", "data", "acl"])
+    # _source_excludes=excluded_fields)
     end_time = round(time.time() * 1000)
     queryResponse['client_time'] = end_time - start_time
     return queryResponse

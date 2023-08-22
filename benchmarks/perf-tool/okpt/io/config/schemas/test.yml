@@ -11,7 +11,7 @@ endpoint:
   default: "localhost"
 port:
   type: integer
-  default: 9200
+  default: 443
 test_name:
   type: string
 test_id:
